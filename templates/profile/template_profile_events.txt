@@ -1,0 +1,9 @@
+I will give you a personal profile with demographic attributes.
+Input Profile:
+{}
+
+Populate the details/attributes of the life events of the person in the personal profile for the events below, being as creative and unique as possible. Ensure consistency with the demographic attributes in the profile provided.
+Events:
+{}
+
+Follow the exact formatting for events, and only output the populated events.

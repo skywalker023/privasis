@@ -1,0 +1,18 @@
+I will provide demographic characteristic information about a person. Generate an exhaustive personal profile by populating the demographic characteristic fields in the provided structure. Ensure the entries for the profile fields are realistic and specific. 
+
+{}
+Last Name:
+Ethnicity:
+Race:
+Educational Level:
+Employment Status:
+Language(s) Spoken:
+Sexual Orientation:
+Gender Identity:
+Migration Status (immigrant vs. native-born):
+Health Status (i.e., chronic conditions, general health):
+Political Affiliation:
+Parental Status (whether the person has children or not):
+
+Only output the completed profile in the above format.
+

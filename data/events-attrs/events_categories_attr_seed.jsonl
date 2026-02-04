@@ -1,0 +1,14 @@
+{"occupation": ["ORGANIZATION", "TITLE"]}
+{"education": ["INSTITUTION", "DEGREE", "MAJOR"]}
+{"residence": ["HOME_TYPE", "OWNERSHIP"]}
+{"personal_transport": ["VEHICLE_TYPE", "OWNERSHIP"]}
+{"religious belief": ["RELIGIOUS_BELIEF_TYPE"]}
+{"political belief": ["POLITICAL_BELIEF_TYPE"]}
+{"health_background": ["DISABILITY", "ACCIDENTS"]}
+{"health_sexual": ["SEXUAL_ORIENTATION", "SEXUAL_ACTIVITY", "HIGH_RISK_SEXUAL_ACTIVITY"]}
+{"health_reproductive": [ "PREGNANCY", "BREASTFEEDING", "BIRTHCONTROL"]}
+{"health_condition": ["CONDITION", "SEVERITY", "TREATMENT"]}
+{"hobbies": ["HOBBY_TYPE", "PROFICIENCY", "FREQUENCY"]}
+{"relationship": ["RELATION_EVENT_TYPE"]}
+{"financial": ["FINANCIAL_EVENT_TYPE"]}
+{"judicial": ["CRIMINAL_CONVICTION_TYPE"]}

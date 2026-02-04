@@ -1,0 +1,35 @@
+name: privasis
+channels:
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11.11
+  - pip=25.2
+  - nvidia::cuda-toolkit=12.8
+  - pip:
+    - torch==2.9.0
+    - openai==2.16.0
+    - tiktoken==0.11.0
+    - transformers==4.57.1
+    - numpy==1.26.4
+    - vllm==0.11.1
+    - wandb
+    - colorful
+    - scikit_learn==1.2.1
+    - backoff==2.2.1
+    - pandas
+    - rich
+    - rouge
+    - pydantic
+    # For linting
+    - pylint
+    - pycodestyle
+    - mypy
+    - pudb
+    - jsonlines
+    # For debugging
+    - better-exceptions==0.3.3
+    - ipython
+    - ipykernel
+    - jupyter

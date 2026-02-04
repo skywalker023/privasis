@@ -1,0 +1,42 @@
+I will provide a set of demographic attributes of a person. Generate a complete personal profile by populating the fields in the provided structure below. Ensure the entries for the profile fields are realistic and consistent. Be creative. You will be given an option list for some attribute types to choose from for events and populate.
+
+**Demographic Attributes**
+{}
+
+**Required Profile Fields**
+- Last Name:
+- Sex: Choose from {}
+- Ethnicity: Choose from {}
+- Citizenship:
+- ID Type:
+- ID Number:
+- Passport Number:
+- Phone Number:
+- Email:
+- User Handle:
+- URL:
+
+**Life Event List**
+{}
+
+**Profile Generation Guidelines:**
+1. Include all provided demographic information in the output
+2. Ensure consistency across all fields
+3. Add specific details following these requirements:
+   - Use exact dates (avoid the 15th of any month)
+   - Include precise locations (full addresses or well-known landmarks)
+   - Add realistic timestamps and durations
+   - Use specific measurements and quantities
+   - Avoid sequential or patterned numbers (e.g., 12345, 9876)
+   - Incorporate relevant industry terminology where appropriate
+
+**Output Format:**
+Organize the profile into two main sections:
+1. 'profile': Contains basic demographic attributes
+2. 'events': Contains life events and their associated attributes
+
+Format all attributes using snake_case with underscores. For events, list their attributes under the 'attributes' key. Each attribute should include:
+- name: The attribute identifier
+- value: The corresponding value
+
+Only output the completed profile in the specified format.
