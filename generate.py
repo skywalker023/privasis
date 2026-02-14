@@ -127,7 +127,6 @@ from templates.schemas import (
 )
 
 PROJECT_HOME = Path(__file__).parent.resolve()
-DATA_DIR = os.path.join(PROJECT_HOME, 'data')
 OUTPUT_DIR = os.path.join(PROJECT_HOME, 'outputs', 'privasis')
 
 class PrivasisGenerator:
@@ -192,6 +191,7 @@ class PrivasisGenerator:
         
         # Pre-load the model once at initialization
         self.model_name = args.generator_model
+        self.supports_structured_output = self.model_name in ["gpt-4.1-nonasync"]
         self.model = load_model(
             self.model_name,
             num_gpus=self.vllm_config['num_gpus'],
@@ -209,6 +209,10 @@ class PrivasisGenerator:
         self._hf_embedding_tokenizer = None
         self._hf_embedding_model_name = None
         self._hf_model_lock = threading.Lock()
+        
+        # Cache for OpenAI embedding client (lazy loaded, thread-safe)
+        self._openai_client = None
+        self._openai_client_lock = threading.Lock()
         
         # Load existing embeddings if available
         if os.path.exists(self.output_file):
@@ -322,7 +326,7 @@ class PrivasisGenerator:
         formatted_seed = "\n".join([f"- {k}: {v}" for k, v in seed.items()]).strip()
         seeded_profile = self.profile_template_events.format(formatted_seed, options['Sex'], options['Ethnicity'], events_string)
 
-        if self.model_name in ["gpt-4.1-nonasync"]:
+        if self.supports_structured_output:
             completed_profile_detailed = self.model.interact(prompt=seeded_profile, max_tokens=4096, response_format=ProfileAndEvents)
         else:  # for models without response_format
             completed_profile_detailed = self.model.interact(prompt=seeded_profile, max_tokens=4096)
@@ -343,7 +347,7 @@ class PrivasisGenerator:
                 return {"error": f"[profile-parse] Invalid JSON from model: {e}"}, True
 
         # reformat profile and events
-        if self.model_name in ["gpt-4.1-nonasync"]:
+        if self.supports_structured_output:
             reformatted_profile = {attr["name"]: attr["value"] for attr in parsed_profile["profile"]}
             reformatted_events = [{
                 "event": event["event"],
@@ -408,7 +412,7 @@ class PrivasisGenerator:
         prompt = f"{record}\n\nQuestion: Extract all profile attributes and their values that are explicitly mentioned in the record above. Only include attributes that are directly stated in the record text, and use the exact values as they appear in the record. Do not include any attributes that are not explicitly mentioned in the record. Output in a JSON format and do not include any additional comments.\n\nProfile template (for reference only):\n{json.dumps(profile, indent=4)}"
         
         try:
-            if self.model_name in ["gpt-4.1-nonasync"]:
+            if self.supports_structured_output:
                 included_profile_str = self.model.interact(prompt=prompt, json_mode=True, max_tokens=5024)
             else:  # for models without response_format
                 included_profile_str = self.model.interact(prompt=prompt, max_tokens=5024)
@@ -459,7 +463,7 @@ Indexed event attributes:
 
 Focus on creating clusters that would be useful for privacy analysis, data anonymization, or understanding what types of sensitive information are present in the event. Do not include any additional comments."""
 
-        if self.model_name in ["gpt-4.1-nonasync"]:
+        if self.supports_structured_output:
             grouped_event_attributes = self.model.interact(prompt=prompt, max_tokens=4096, response_format=GroupedAttributes) 
         else:  # for models without response_format
             grouped_event_attributes = self.model.interact(prompt=prompt, max_tokens=4096)
@@ -475,7 +479,7 @@ Focus on creating clusters that would be useful for privacy analysis, data anony
 
         # Parse index clusters
         parsed_grouped_event_attributes = {}
-        if self.model_name in ["gpt-4.1-nonasync"]:
+        if self.supports_structured_output:
             for cluster in grouped_event_attributes.clusters:
                 parsed_attrs = {}
                 for i in cluster.attributes:
@@ -534,8 +538,9 @@ Focus on creating clusters that would be useful for privacy analysis, data anony
 **Output format:** JSON with attribute names as keys and their exact values as values. Do not use nested structures. Do not include any additional comments."""
 
         # Extract attributes from record
+        attr_str = None
         try:
-            if self.model_name in ["gpt-4.1-nonasync"]:
+            if self.supports_structured_output:
                 attr_str = self.model.interact(prompt=prompt, json_mode=True, max_tokens=7000)
             else:  # for models without response_format
                 attr_str = self.model.interact(prompt=prompt, max_tokens=7000)
@@ -553,7 +558,7 @@ Focus on creating clusters that would be useful for privacy analysis, data anony
         organize_prompt = f"Profile:\n{json.dumps(included_profile_attrs, indent=4)}\n\nEvent attributes:\n{json.dumps(attrs, indent=4)}\n\nOrganize the two JSONs and output one JSON with keys 'profile' and 'event' according to the above. Do not have duplicate values across 'profile' and 'event'. Do not include any additional comments."
         
         try:
-            if self.model_name in ["gpt-4.1-nonasync"]:
+            if self.supports_structured_output:
                 organized_attr_str = self.model.interact(prompt=organize_prompt, json_mode=True, max_tokens=7000)
             else:  # for models without response_format
                 organized_attr_str = self.model.interact(prompt=organize_prompt, max_tokens=7000)
@@ -716,10 +721,26 @@ Based on the situation described above, outline what the structure should look l
         record_type = prior['record_type']
         form = prior['format']
         
-        prompt = f"""Generate a realistic, detailed and creative '{record_type}' in English according to the situation above. Follow these guidelines:
+        event_info = {**profile['event_list'][0]}
+        if 'event' in event_info:
+            event_info['event title'] = event_info.pop('event')
+            event_info['event attributes'] = event_info.pop('attributes')
+
+        prompt = f"""{profile['profile']['first_name']}'s profile:
+{json.dumps(profile['profile'], indent=4)}
+
+Event:
+{json.dumps(event_info, indent=4)}
+
+Situation:
+{situation_info['text']}
+
+---
+
+Now generate a realistic, detailed and creative '{record_type}' in English according to {profile['profile']['first_name']}'s profile, event, and situation above. Follow these guidelines:
 
 1. Use Profile Information:
-   - Incorporate relevant attributes from {profile['profile']['first_name']}'s profile
+   - Incorporate only the relevant attributes from {profile['profile']['first_name']}'s profile and the event above
    - Ensure all personal details match the profile exactly
 
 2. Add Specific Details:
@@ -738,14 +759,14 @@ Based on the situation described above, outline what the structure should look l
 Only output the generated '{record_type}' without any additional comments or explanations."""
 
         model = self.model
-        history = [situation_info['prompt'], situation_info['text']]
+        # history = [situation_info['prompt'], situation_info['text']]
         try:
-            record = model.interact(prompt, temperature=0.7, max_tokens=8000, history=history)
+            record = model.interact(prompt, temperature=0.7, max_tokens=10240)
         except Exception as e:
             logger.warning(f"First attempt to draft record failed: {e}. Retrying with adjusted parameters.")
             # Retry with different temperature for Gemini models, or same params for others
             retry_temp = 1.0 if "gemini-" in self.model_name else 0.7
-            record = model.interact(prompt, temperature=retry_temp, max_tokens=8000, history=history)
+            record = model.interact(prompt, temperature=retry_temp, max_tokens=10240)
 
         record_id = get_text_hash(record)
         output = {'text': record, 'prompt': prompt, 'type': record_type, 'form': form, 'id': record_id}
@@ -867,10 +888,15 @@ Only output the generated '{record_type}' without any additional comments or exp
             else:
                 return embedding_old, None
         else:
-            # Use OpenAI API
-            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-            if not client.api_key:
-                raise ValueError("OPENAI_API_KEY environment variable not set")
+            # Use OpenAI API (lazy-init, thread-safe, reused across calls)
+            if self._openai_client is None:
+                with self._openai_client_lock:
+                    if self._openai_client is None:
+                        api_key = os.getenv("OPENAI_API_KEY")
+                        if not api_key:
+                            raise ValueError("OPENAI_API_KEY environment variable not set")
+                        self._openai_client = OpenAI(api_key=api_key)
+            client = self._openai_client
             
             # Truncate texts to 8192 tokens if needed
             encoding = tiktoken.encoding_for_model(model)
@@ -1025,6 +1051,10 @@ Respond only with '1' or '2', indicating which record is better."""
             with self._score_lock:
                 current_score = self.current_score
             
+            # Initialize for logging (overwritten in the else branch)
+            score_diff = 0.0
+            acceptance_prob = 1.0
+            
             # For the first record, we always accept
             if not has_previous:
                 keep_new = True
@@ -1121,15 +1151,16 @@ Respond only with '1' or '2', indicating which record is better."""
         accepted_records = [record]
         rejected_records = []
 
-        prompt = f"""Revise the following record to make it more specific and realistic.
+        mh_iterations = 2  # Number of MH refinement steps
+        max_retries = 3
+        for _ in range(mh_iterations):
+            prompt = f"""Revise the following record to make it more specific and realistic.
 
 **Record**:
 {record}
 
 Make sure to generate the '{record_type}' with less markdown formatting. Only output the revised record."""
 
-        max_retries = 3
-        while True:
             # Try to generate new record with retries
             for attempt in range(max_retries):
                 try:
@@ -1142,13 +1173,9 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
                     else:
                         logger.error(f"MH refinement failed after {max_retries} attempts: {e}")
                         raise RecordGenerationError(f"Failed to refine record: {e}") from e
-            # print(cf.yellow(f"Generated record: {new_record}"))
-            # print("="*30)
-            # print()
 
             # Compare records and determine if we should keep the new one
             should_keep_new, new_embedding = self.compare_records(record, new_record)
-            # should_keep_new, new_embedding = self.compare_records_llm_only(record, new_record)
         
             if should_keep_new:
                 accepted_records.append(new_record)
@@ -1162,12 +1189,9 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
             else:
                 rejected_records.append(new_record)
 
-            if len(accepted_records) + len(rejected_records) > 2:
-                break
-
         record_id = get_text_hash(record)
         output = {'text': record, 'prompt': prompt, 'type': record_type, 'id': record_id, 'accepted_records': accepted_records, 'rejected_records': rejected_records}
-        return output, False
+        return output, False 
 
     def finalize_record(self, record: dict, form: str, attrs: dict, situation: dict) -> dict:
         record_type = record['type']
@@ -1239,15 +1263,15 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
             return {'error': situation['error_message'], 'profile': profile, 'record_type': record_type, 'social_context': None, 'format': None}, True
         
         # Step 4: Generate format (p(format|record-type,social-context))
-        format = self.sample_format(record_type, situation['text'])
-        if isinstance(format, dict) and "error_message" in format:
-            return {'error': format['error_message'], 'profile': profile, 'record_type': record_type, 'social_context': situation, 'format': None}, True
+        record_format = self.sample_format(record_type, situation['text'])
+        if isinstance(record_format, dict) and "error_message" in record_format:
+            return {'error': record_format['error_message'], 'profile': profile, 'record_type': record_type, 'social_context': situation, 'format': None}, True
         
         return {
             'profile': profile,
             'record_type': record_type,
             'social_context': situation,
-            'format': format
+            'format': record_format
         }, False
 
     def generate_privasis_data(self, seed) -> Tuple[List[dict], bool]:
@@ -1291,7 +1315,7 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
                     continue
                 else:
                     logger.warning(f"LLM refusal detected for record {record['id']} after {max_record_attempts} attempts")
-                    error_record = {'error': validation_error, **record}
+                    error_record = {**record, 'error': validation_error}
                     return error_record, True
             
             # Check for minimum word count
@@ -1303,7 +1327,7 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
                     continue
                 else:
                     logger.warning(f"Record too short ({word_count} words) for record {record['id']} after {max_record_attempts} attempts")
-                    error_record = {'error': validation_error, **record}
+                    error_record = {**record, 'error': validation_error}
                     return error_record, True
             
             # Validation passed, break out of retry loop
@@ -1315,14 +1339,12 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
         except (json.JSONDecodeError, KeyError, TypeError, ModelInteractionError) as e:
             logger.error(f"Error annotating attributes for record {record['id']}: {e}")
             print(Panel(f"{e}\nError in annotating attributes for record {record['id']}\n{record['text'][:500]}...", box=box.SIMPLE_HEAD, title="Error", expand=False, style="red"))
-            # Create new dict with 'error' first for readability in error logs
-            error_record = {'error': f"[attr-expand] Annotation failed: {e}", **record}
+            error_record = {**record, 'error': f"[attr-expand] Annotation failed: {e}"}
             return error_record, True
 
         if "error_message" in attributes:
             logger.warning(f"Attribute expansion failed for record {record.get('id', 'unknown')}: {attributes['error_message']}")
-            # Create new dict with 'error' first for readability in error logs
-            error_record = {'error': attributes['error_message'], **record}
+            error_record = {**record, 'error': attributes['error_message']}
             return error_record, True
 
         record['attributes'] = attributes['attributes']
@@ -1353,26 +1375,6 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
         }
 
         return final_output, error_flag
-
-    def save_clean_csv(self):
-        df = pd.read_json(self.output_file, lines=True)
-        clean = []
-        for idx, row in df.iterrows():
-            clean.append(
-                {
-                    'profile': json.dumps(row['profile']['generated_profile_string'], indent=4),
-                    'situation': row['situation']['text'],
-                    'format': row['format'],
-                    'accepted_records': row['record']['accepted_records'],
-                    'rejected_records': row['record']['rejected_records'],
-                    'record': row['record']['text'],
-                    'attributes': json.dumps(row['record']['attributes'], indent=4),
-                    'grouped_attributes': json.dumps(row['record']['grouped_attributes'], indent=4),
-                    'id': row['id']
-                }
-            )
-        clean_df = pd.DataFrame(clean)
-        # clean_df.to_csv(self.output_file.removesuffix(".jsonl") + ".csv", index=False)
 
     def _process_seed(self, idx: int, seed: dict) -> Tuple[int, dict, bool]:
         """Process a single seed and return the result.
@@ -1474,7 +1476,6 @@ Make sure to generate the '{record_type}' with less markdown formatting. Only ou
             print(f"  Success Rate: {success_rate:.1f}%")
             print("=" * 50)
 
-        # self.save_clean_csv()
 
 def main(args):
     generator = PrivasisGenerator(args)

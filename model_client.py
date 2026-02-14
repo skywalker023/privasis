@@ -14,6 +14,7 @@ Model naming conventions:
 """
 
 import os
+import re
 import logging
 import asyncio
 from typing import List, Optional, Tuple, Callable, Any
@@ -254,35 +255,7 @@ class UnifiedModelClient:
         # Handle thinking tokens (for models like Qwen3, DeepSeek-R1)
         if "</think>" in text:
             text = text.split("</think>")[-1].strip()
-        
-        # Handle gpt-oss-120b style tokens (analysis/final/assistant without angle brackets)
-        # These appear when special tokens are decoded without proper handling
-        import re
-        
-        # Pattern: look for "final" marker and extract content after it
-        # Handles both "<final>content</final>" and "finalcontent" (stripped brackets)
-        if "</final>" in text:
-            # Standard XML-style tags
-            match = re.search(r'<final>(.*?)</final>', text, re.DOTALL)
-            if match:
-                text = match.group(1).strip()
-        elif "final" in text.lower():
-            # Handle stripped special tokens: "analysisWe need...assistantfinalActual answer"
-            # Split on common patterns where "final" appears
-            patterns = [
-                r'(?:assistant)?final\s*',  # "assistantfinal" or "final"
-                r'</assistant>.*?final\s*',
-            ]
-            for pattern in patterns:
-                parts = re.split(pattern, text, flags=re.IGNORECASE)
-                if len(parts) > 1:
-                    text = parts[-1].strip()
-                    break
-        
-        # Also handle "</analysis>" style tags
-        if "</analysis>" in text:
-            text = text.split("</analysis>")[-1].strip()
-        
+
         # Clean up any remaining assistant markers
         text = re.sub(r'^(assistant|</assistant>)\s*', '', text, flags=re.IGNORECASE)
         

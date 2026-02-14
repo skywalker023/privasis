@@ -74,7 +74,11 @@ def capture_and_parse_ordered_list(text):
     # Remove numbers from the beginning of each match
     ordered_list = [re.sub(r'^\d+\.\s+', '', match).strip() for match in matches]
     
-    return ordered_list
+    if ordered_list:
+        return ordered_list
+
+    # Fallback: try literal lists and newline-separated values
+    return parse_list_string(text)
 
 def capture_and_parse_unordered_list(text):
     """
@@ -90,8 +94,12 @@ def capture_and_parse_unordered_list(text):
     
     # Remove asterisks or hyphens from the beginning of each match
     unordered_list = [re.sub(r'^[\*\-]\s+', '', match).strip() for match in matches]
-    
-    return unordered_list
+
+    if unordered_list:
+        return unordered_list
+
+    # Fallback: try literal lists and newline-separated values
+    return parse_list_string(text)
 
 def parse_list_string(text: str) -> list:
     """
