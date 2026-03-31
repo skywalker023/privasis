@@ -1757,18 +1757,15 @@ Abstract '{attr}' using the following strategy. Return only the rewritten textâ€
                 else:
                     fp.write(json.dumps(result) + "\n")
 
-    def get_last_save_idx(self) -> int:
+    def get_processed_ids(self) -> set:
+        processed = set()
         logs = read_logs(self.output_file)
+        if logs is not None and 'folder_num' in logs.columns:
+            processed.update(logs['folder_num'].dropna().astype(int).tolist())
         error_logs = read_logs(self.error_file)
-        if logs is not None:
-            last_save_idx = logs['folder_num'].iloc[-1]
-        else:
-            last_save_idx = -1
-        if error_logs is not None:
-            last_error_idx = error_logs['folder_num'].iloc[-1]
-            if last_error_idx > last_save_idx:
-                last_save_idx = last_error_idx
-        return last_save_idx
+        if error_logs is not None and 'folder_num' in error_logs.columns:
+            processed.update(error_logs['folder_num'].dropna().astype(int).tolist())
+        return processed
 
     def _process_datapoint(self, idx: int, privasis_datapoint) -> Tuple[int, dict, bool]:
         """Process a single datapoint and return the result.
@@ -1866,11 +1863,15 @@ Abstract '{attr}' using the following strategy. Return only the rewritten textâ€
         """
         Run sanitization pipeline
         """
-        self.privasis = load_privasis(self.args.privasis_data_id)
-        last_save_idx = self.get_last_save_idx()
-        
+        if self.args.privasis_dir:
+            privasis_path = os.path.join(self.args.privasis_dir, f"{self.args.privasis_data_id}.jsonl")
+            self.privasis = pd.read_json(privasis_path, lines=True)
+        else:
+            self.privasis = load_privasis(self.args.privasis_data_id)
+        processed_ids = self.get_processed_ids()
+
         # Filter datapoints that haven't been processed yet
-        datapoints_to_process = [(idx, row) for idx, row in self.privasis.iterrows() if idx > last_save_idx]
+        datapoints_to_process = [(idx, row) for idx, row in self.privasis.iterrows() if idx not in processed_ids]
         
         if not datapoints_to_process:
             print("All datapoints already processed.")
@@ -2711,6 +2712,10 @@ if __name__ == "__main__":
                         help="Run ID that was used for the generation phase, the Abstractor class will try to load the file under data/outputs/privasis/ with this ID.",
                         type=str,
                         default="mark07")
+    parser.add_argument('--privasis-dir',
+                        help="Directory containing the privasis input JSONL files. Defaults to outputs/privasis/.",
+                        type=str,
+                        default=None)
     parser.add_argument('--run-id',
                         help="Run ID, which will also be used as the output file name under data/abstracted_privasis/",
                         type=str,

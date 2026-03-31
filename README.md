@@ -181,9 +181,103 @@ Results are saved to `outputs/sanitized_privasis/`:
 
 ---
 
-## Evaluation 
+## Evaluation
 
-Coming soon with our dataset release!
+The evaluation pipeline measures how effectively a sanitization model removes or abstracts private information. It uses a two-phase approach: (1) the testee model sanitizes benchmark texts, then (2) an evaluator model attempts to infer the original PII from the sanitized output via string matching and LLM-based inference attacks.
+
+### Quick Start
+
+Use the provided shell scripts to run the full test-and-evaluate pipeline on the [Privasis-Zero](https://huggingface.co/datasets/nvidia/Privasis-Zero) benchmark:
+
+```bash
+# Test on the vanilla benchmark
+./run_vanilla_benchmark.sh
+
+# Test on the hard benchmark
+./run_hard_benchmark.sh
+
+# Override defaults via environment variables
+MODEL=my-model NUM_GPUS=4 ./run_vanilla_benchmark.sh
+```
+
+These scripts automatically handle vLLM server lifecycle (start/stop) for both the testee and evaluator models. API models (e.g., `gpt-4*`) are detected automatically and skip the vLLM server.
+
+### Step-by-Step Usage
+
+#### Step 1: Generate sanitized outputs with the testee model
+
+```bash
+python run_benchmark.py \
+    --model_path openai/gpt-oss-120b \
+    --hf_subset vanilla \
+    --hf_split test \
+    --sanitized_output_filename my_model_vanilla_test.jsonl \
+    --evaluation_output_filename my_model_vanilla_test_eval.jsonl \
+    --vllm-server-url http://localhost:8000/v1 \
+    --batch_size 16 \
+    --skip-evaluation
+```
+
+#### Step 2: Evaluate sanitization effectiveness
+
+```bash
+python evaluate.py \
+    --input-file outputs/benchmark_predictions/my_model_vanilla_test.jsonl \
+    --output-file my_model_vanilla_test_eval.jsonl \
+    --evaluator-model-name gpt-4.1
+```
+
+### Benchmark Arguments (`run_benchmark.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--model_path` | **(required)** | Path to the sanitization model |
+| `--test_data_path` | `None` | Path to local test data JSONL file |
+| `--hf_subset` | `None` | Privasis-Zero dataset subset (`vanilla` or `hard`) |
+| `--hf_split` | `test` | Privasis-Zero dataset split (`test` or `validation`) |
+| `--sanitized_output_filename` | `None` | Filename for sanitized results |
+| `--evaluation_output_filename` | **(required)** | Filename for evaluation results |
+| `--batch_size` | `1` | Batch size for inference |
+| `--max_length` | `9024` | Maximum generation length |
+| `--temperature` | `0.0` | Sampling temperature |
+| `--no_vllm` | `False` | Disable vLLM, use HuggingFace Transformers |
+| `--num_gpus` | `1` | Number of GPUs for vLLM tensor parallelism |
+| `--vllm-server-url` | `None` | URL of external vLLM server |
+| `--evaluator_model_name` | `hf/openai/gpt-oss-120b` | Evaluator model name |
+| `--evaluator-vllm-server-url` | `None` | URL of vLLM server for evaluator |
+| `--skip-evaluation` | `False` | Only run sanitization, skip evaluation |
+| `--num_examples` | `None` | Limit number of examples (for quick testing) |
+| `--use_smoothed_instruction` | `False` | Use smoothed sanitization instructions |
+
+### Evaluate Arguments (`evaluate.py`)
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--input-file` | `None` | Path to sanitized results JSONL (or use `--hf-subset`) |
+| `--hf-subset` | `None` | Privasis-Zero dataset subset (`vanilla` or `hard`) |
+| `--hf-split` | `test` | Privasis-Zero dataset split (`test` or `validation`) |
+| `--output-file` | **(required)** | Path to save evaluation report |
+| `--evaluator-model-name` | `nvdev/openai/gpt-oss-120b` | LLM model for evaluation |
+| `--vllm-server-url` | `None` | URL of vLLM server |
+| `--n-records` | `None` | Number of records to evaluate |
+| `--faster` | `False` | Use only exact string matching (no LLM inference) |
+| `--resume` | `False` | Resume from existing checkpoint |
+
+
+### Shell Script Configuration
+
+Both `run_vanilla_benchmark.sh` and `run_hard_benchmark.sh` accept the following environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MODEL` | `openai/gpt-oss-120b` | Testee model |
+| `EVALUATOR_MODEL` | `openai/gpt-oss-120b` | Evaluator model |
+| `NUM_GPUS` | `8` | Number of GPUs for vLLM |
+| `BATCH_SIZE` | `16` (vanilla) / `8` (hard) | Batch size |
+| `PORT` | `8000` | vLLM server port |
+| `NUM_EXAMPLES` | *(all)* | Limit number of examples |
+| `MAX_MODEL_LEN` | *(auto)* | Maximum model context length |
+| `EXTRA_ARGS` | *(none)* | Additional flags for `run_benchmark.py` |
 
 
 ---

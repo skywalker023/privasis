@@ -14,6 +14,7 @@ dependencies:
     - transformers==4.57.1
     - numpy==1.26.4
     - vllm==0.11.1
+    - datasets
     - wandb
     - colorful
     - scikit_learn==1.2.1
