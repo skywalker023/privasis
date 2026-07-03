@@ -1,6 +1,11 @@
 # 🏝️ Privasis
 
-Welcome! This is the official repository for our paper ["Privasis: Synthesizing the Largest 'Public' Private Dataset from Scratch"](https://arxiv.org/abs/2602.03183). Please visit our website for an [overview of the project](https://privasis.github.io). We will soon release our dataset and models. Stay tuned!
+Welcome! This is the official repository for our paper ["Privasis: Synthesizing the Largest 'Public' Private Dataset from Scratch"](https://arxiv.org/abs/2602.03183). Please visit our website for an [overview of the project](https://privasis.github.io). 
+
+The datasets and models can be found in the links below:
+- [Privasis-Zero corpus and sanitization benchmark](https://huggingface.co/datasets/nvidia/Privasis-Zero)
+- [Privasis-USA corpus and sanitization training set](https://huggingface.co/datasets/nvidia/Privasis-USA)
+- Privasis-Cleaner sanitization models [4B](https://huggingface.co/nvidia/Privasis-Cleaner-4B) and [0.6B](https://huggingface.co/nvidia/Privasis-Cleaner-0.6B)
 
 ## Environment Setup
 
