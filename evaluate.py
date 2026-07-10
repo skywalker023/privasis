@@ -460,14 +460,27 @@ class SanitizationEvaluator:
 
         # only get the sanitized_results that has more than 1 attribute to keep
         target_sanitized_results = [result for result in sanitized_results if len(result['sanitization_info']['attrs_to_keep']) > 0]
-        
+
+        skipped_records = 0
+
         try:
             for i, result in enumerate(tqdm(target_sanitized_results[resume_from:], desc="Evaluating sanitization")):
                 original_text = result['original_text']
-                if 'model_sanitized_text' in result:
-                    sanitized_text = result['model_sanitized_text']
-                else:
-                    sanitized_text = result['text']
+                # Require an explicit model-produced sanitization. We deliberately do
+                # NOT fall back to result['text'] (the ground-truth/reference sanitized
+                # record), which would silently score the gold labels instead of the
+                # model. Run model inference first (e.g. run_benchmark.py) to populate
+                # 'model_sanitized_text'.
+                sanitized_text = result.get('model_sanitized_text')
+                if sanitized_text is None:
+                    logger.warning(
+                        "Record %s has no 'model_sanitized_text'; skipping "
+                        "(refusing to fall back to the ground-truth sanitized text). "
+                        "Run model inference to produce model outputs before evaluating.",
+                        result.get('record_id', result.get('id', resume_from + i)),
+                    )
+                    skipped_records += 1
+                    continue
                 if isinstance(sanitized_text, dict):
                     if 'response' in sanitized_text:
                         sanitized_text = sanitized_text['response']
@@ -556,7 +569,15 @@ class SanitizationEvaluator:
         
         # Save final checkpoint
         save_evaluation_checkpoint()
-        
+
+        if skipped_records > 0:
+            logger.warning(
+                "Skipped %d/%d records with no 'model_sanitized_text'. These were "
+                "NOT scored against the ground truth. Run model inference first if "
+                "you intended to evaluate a model's outputs.",
+                skipped_records, len(target_sanitized_results),
+            )
+
         # Remove checkpoint file after successful completion
         # if checkpoint_file.exists():
         #     checkpoint_file.unlink()
@@ -878,9 +899,13 @@ def load_sanitized_results(file_path: str = None, n_records: int = None,
             info['individual_target_attributes'] = target_attrs
             return info
 
+        # Raw benchmark contains only the ground-truth 'sanitized_record'; there is no
+        # model output here. We store it as 'reference_sanitized_text' (NOT
+        # 'model_sanitized_text') so the evaluator skips these records instead of
+        # scoring the gold labels. Run model inference (run_benchmark.py) to evaluate.
         df['sanitized_record'] = df.apply(lambda row: {
             'sanitization_info': build_sanitization_info(row),
-            'text': row['sanitized_record'],
+            'reference_sanitized_text': row['sanitized_record'],
             'original_text': row['original_record'],
             'smoothed_instruction': row['smoothed_instruction'],
             'base_instruction': row['base_instruction'],
@@ -888,9 +913,14 @@ def load_sanitized_results(file_path: str = None, n_records: int = None,
             'record_type': row['record_type'],
         }, axis=1)
     elif "sanitized_record" in df.columns:
-        df['sanitized_record'] = df.apply(lambda row: {**row['sanitized_record'], 'original_text': row['record']['text'], 'base_instruction': row['base_instruction'], 'smoothed_instruction': row['smoothed_instruction'], 'id': row['id']}, axis=1)
+        # sanitize.py output format: sanitized_record['text'] is the model-produced
+        # sanitization, which is what we evaluate.
+        df['sanitized_record'] = df.apply(lambda row: {**row['sanitized_record'], 'model_sanitized_text': row['sanitized_record'].get('text'), 'original_text': row['record']['text'], 'base_instruction': row['base_instruction'], 'smoothed_instruction': row['smoothed_instruction'], 'id': row['id']}, axis=1)
     else:
-        df['sanitized_record'] = df.apply(lambda row: {'text': row.get('model_sanitized_text') or row['sanitized_text'],
+        # Prediction format (run_benchmark.py output): carry model_sanitized_text
+        # through explicitly. If it is absent, leave it absent so the evaluator skips
+        # the record rather than silently scoring the ground-truth 'sanitized_text'.
+        df['sanitized_record'] = df.apply(lambda row: {'model_sanitized_text': row.get('model_sanitized_text'),
                                                        'sanitization_info': row['sanitization_info'],
                                                        'base_instruction': row['base_instruction'],
                                                        'smoothed_instruction': row['smoothed_instruction'],
